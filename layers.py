@@ -99,7 +99,7 @@ class RNNEncoder(nn.Module):
         # Sort by length and pack sequence for RNN
         lengths, sort_idx = lengths.sort(0, descending=True)
         x = x[sort_idx]     # (batch_size, seq_len, input_size)
-        x = pack_padded_sequence(x, lengths, batch_first=True)
+        x = pack_padded_sequence(x, lengths.cpu(), batch_first=True)
 
         # Apply RNN
         x, _ = self.rnn(x)  # (batch_size, seq_len, 2 * hidden_size)
@@ -220,3 +220,63 @@ class BiDAFOutput(nn.Module):
         log_p2 = masked_softmax(logits_2.squeeze(), mask, log_softmax=True)
 
         return log_p1, log_p2
+
+
+class WordEmbedding(nn.Module):
+    """
+    Word embedding layer used by BiDAF, without highway network.
+
+    To be concatenated with character embedding before being fed to highway network.
+
+    Args:
+        word_vectors (torch.Tensor): Pre-trained word vectors.
+        hidden_size (int): Size of hidden activations.
+        drop_prob (float): Probability of zero-ing out activations
+    """
+    def __init__(self, word_vectors, hidden_size, drop_prob):
+        super(WordEmbedding, self).__init__()
+        self.drop_prob = drop_prob
+        self.embed = nn.Embedding.from_pretrained(word_vectors)
+        self.proj = nn.Linear(word_vectors.size(1), hidden_size, bias=False)
+
+    def forward(self, x):
+        emb = self.embed(x)   # (batch_size, seq_len, embed_size)
+        emb = F.dropout(emb, self.drop_prob, self.training)
+        emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
+
+        return emb
+
+
+class CharEmbedding(nn.Module):
+    """
+    Character embedding layer used by BiDAF.
+
+    Args:
+        char_vectors (torch.Tensor): Pre-trained word vectors.
+        hidden_size (int): Size of hidden activations.
+        drop_prob (float): Probability of zero-ing out activations
+    """
+    def __init__(self, char_vectors, hidden_size, drop_prob):
+        max_word_length = 16
+
+        super(CharEmbedding, self).__init__()
+        self.drop_prob = drop_prob
+        self.embed = nn.Embedding.from_pretrained(char_vectors)
+        self.conv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, stride=1, padding=1)
+        self.maxpool = nn.MaxPool2d(kernel_size=max_word_length, stride=1)
+        self.proj = nn.Linear(char_vectors.size(1) - max_word_length + 1, hidden_size, bias=False)
+
+    def forward(self, x):
+        emb = self.embed(x)   # (batch_size, seq_len, max_word_len, embed_size)
+        emb = F.dropout(emb, self.drop_prob, self.training)
+
+        batch_size, seq_len, word_len, embed_size = emb.size()
+
+        emb = emb.view(-1, 1, word_len, embed_size)
+        emb = self.conv(emb)
+        emb = self.maxpool(emb)
+        emb = emb.view(-1, emb.size()[-1])
+        emb = self.proj(emb)
+        emb = emb.view(batch_size, seq_len, -1) # (batch_size, seq_len, hidden_size)
+
+        return emb
