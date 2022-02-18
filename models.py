@@ -156,14 +156,74 @@ class BiDAFCharEmbed(nn.Module):
         return out
 
 
+class BiDAFAnsPtr(nn.Module):
+    """
+    The baseline BiDAF model for SQuAD, where the output layer is
+    replaced by an Answer Pointer layer.
+    See https://arxiv.org/abs/1608.07905 for details.
+
+    Args:
+        word_vectors (torch.Tensor): Pre-trained word vectors.
+        hidden_size (int): Number of features in the hidden state at each layer.
+        drop_prob (float): Dropout probability.
+    """
+    def __init__(self, word_vectors, hidden_size, drop_prob=0.):
+        super(BiDAFAnsPtr, self).__init__()
+        self.emb = layers.Embedding(word_vectors=word_vectors,
+                                    hidden_size=hidden_size,
+                                    drop_prob=drop_prob)
+
+        self.enc = layers.RNNEncoder(input_size=hidden_size,
+                                     hidden_size=hidden_size,
+                                     num_layers=1,
+                                     drop_prob=drop_prob)
+
+        self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
+                                         drop_prob=drop_prob)
+
+        self.mod = layers.RNNEncoder(input_size=8 * hidden_size,
+                                     hidden_size=hidden_size,
+                                     num_layers=2,
+                                     drop_prob=drop_prob)
+
+        self.out = layers.AnswerPointer(hidden_size=hidden_size,
+                                        input_size=10 * hidden_size)
+
+    def forward(self, cw_idxs, qw_idxs, *args):
+        c_mask = torch.zeros_like(cw_idxs) != cw_idxs
+        q_mask = torch.zeros_like(qw_idxs) != qw_idxs
+        c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
+
+        c_emb = self.emb(cw_idxs)         # (batch_size, c_len, hidden_size)
+        q_emb = self.emb(qw_idxs)         # (batch_size, q_len, hidden_size)
+
+        c_enc = self.enc(c_emb, c_len)    # (batch_size, c_len, 2 * hidden_size)
+        q_enc = self.enc(q_emb, q_len)    # (batch_size, q_len, 2 * hidden_size)
+
+        att = self.att(c_enc, q_enc,
+                       c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
+
+        mod = self.mod(att, c_len)        # (batch_size, c_len, 2 * hidden_size)
+
+        out = self.out(att, mod, c_mask)  # 2 tensors, each (batch_size, c_len)
+
+        return out
+
+
 def init_model(name, split, **kwargs):
+    name = name.lower()
     if name =='bidaf':
         return BiDAF(word_vectors=kwargs['word_vectors'],
                      hidden_size=kwargs['hidden_size'],
                      drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
-    elif name =='char_emb_bidaf':
+    elif name =='char_emb':
         return BiDAFCharEmbed(word_vectors=kwargs['word_vectors'],
                               char_vectors=kwargs['char_vectors'],
                               hidden_size=kwargs['hidden_size'],
                               drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
+    elif name == 'ansptr':
+        return BiDAFAnsPtr(word_vectors=kwargs['word_vectors'],
+                           hidden_size=kwargs['hidden_size'],
+                           drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
+
     raise ValueError(f'No model named {name}')

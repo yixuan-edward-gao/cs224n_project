@@ -280,3 +280,33 @@ class CharEmbedding(nn.Module):
         emb = emb.view(batch_size, seq_len, -1) # (batch_size, seq_len, hidden_size)
 
         return emb
+
+
+class AnswerPointer(nn.Module):
+    """
+    Answer pointer layer to serve as output.
+    See https://arxiv.org/abs/1608.07905 for details.
+    """
+    def __init__(self, hidden_size, input_size):
+        super(AnswerPointer, self).__init__()
+        self.V = nn.Linear(input_size, hidden_size, bias=False)
+        self.W = nn.Linear(hidden_size, hidden_size)
+        self.initial_hidden = nn.parameter.Parameter(torch.zeros(hidden_size))
+        self.initial_cell = nn.parameter.Parameter(torch.zeros(hidden_size))
+        self.proj = nn.Linear(hidden_size, 1)
+        self.lstm = nn.LSTMCell(input_size, hidden_size)
+
+    def forward(self, att, mod, mask):
+        H = torch.cat([att, mod], 2)    # (batch_size, seq_len, input_size)
+        batch_size = H.size()[0]
+
+        F_start = torch.tanh(torch.add(self.V(H), self.W(self.initial_hidden))) # (batch_size, seq_len, hidden_size)
+        beta_start = masked_softmax(self.proj(F_start).squeeze(), mask, log_softmax=True) # (batch_size, seq_len)
+
+        # (batch_size, hidden_size)
+        h_end, _ = self.lstm(torch.bmm(torch.transpose(H, 1, 2), torch.unsqueeze(beta_start, 2)).squeeze(),
+                             (self.initial_hidden.expand((batch_size, -1)), self.initial_cell.expand((batch_size, -1))))
+        F_end = torch.tanh(torch.add(self.V(H), self.W(h_end).unsqueeze(1)))    # (batch_size, seq_len, hidden_size)
+        beta_end = masked_softmax(self.proj(F_end).squeeze(), mask, log_softmax=True)   # (batch_size, seq_len)
+
+        return beta_start, beta_end
