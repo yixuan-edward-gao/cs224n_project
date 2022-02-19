@@ -247,41 +247,6 @@ class WordEmbedding(nn.Module):
         return emb
 
 
-# class CharEmbedding(nn.Module):
-#     """
-#     Character embedding layer used by BiDAF.
-#
-#     Args:
-#         char_vectors (torch.Tensor): Pre-trained word vectors.
-#         hidden_size (int): Size of hidden activations.
-#         drop_prob (float): Probability of zero-ing out activations
-#     """
-#     def __init__(self, char_vectors, hidden_size, drop_prob):
-#         max_word_length = 16
-#
-#         super(CharEmbedding, self).__init__()
-#         self.drop_prob = drop_prob
-#         self.embed = nn.Embedding.from_pretrained(char_vectors)
-#         self.conv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, stride=1, padding=1)
-#         self.maxpool = nn.MaxPool2d(kernel_size=max_word_length, stride=1)
-#         self.proj = nn.Linear(char_vectors.size(1) - max_word_length + 1, hidden_size, bias=False)
-#
-#     def forward(self, x):
-#         emb = self.embed(x)   # (batch_size, seq_len, max_word_len, embed_size)
-#         emb = F.dropout(emb, self.drop_prob, self.training)
-#
-#         batch_size, seq_len, word_len, embed_size = emb.size()
-#
-#         emb = emb.view(-1, 1, word_len, embed_size)
-#         emb = self.conv(emb)
-#         emb = self.maxpool(emb)
-#         emb = emb.view(-1, emb.size()[-1])
-#         emb = self.proj(emb)
-#         emb = emb.view(batch_size, seq_len, -1) # (batch_size, seq_len, hidden_size)
-#
-#         return emb
-
-
 class CharEmbedding(nn.Module):
     """
     Character embedding layer used by BiDAF.
@@ -351,3 +316,52 @@ class AnswerPointer(nn.Module):
         beta_end = masked_softmax(self.proj(F_end).squeeze(), mask, log_softmax=True)   # (batch_size, seq_len)
 
         return beta_start, beta_end
+
+
+class SelfAttention(nn.Module):
+    """
+    Self attention layer for context, as presented in R-Net.
+    See https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/r-net.pdf for details.
+
+    """
+    def __init__(self, input_size, hidden_size):
+        super(SelfAttention, self).__init__()
+        self.q = nn.Linear(input_size, input_size, bias=False)
+        self.k = nn.Linear(input_size, input_size, bias=False)
+        self.v = nn.Linear(input_size, 1, bias=False)
+        self.rnn = nn.RNN(input_size=2 * input_size, hidden_size=hidden_size, batch_first=True, bidirectional=True)
+
+    def forward(self, x):
+        batch_size, seq_len, _ = x.size()
+        query = torch.unsqueeze(self.q(x), 2).expand(-1, -1, seq_len, -1)   # (batch_size, seq_len, seq_len, m)
+        key = torch.transpose(
+            torch.unsqueeze(self.k(x), 2).expand(-1, -1, seq_len, -1), 1, 2)  # (batch_size, seq_len, seq_len, m)
+        s = torch.squeeze(self.v(torch.tanh(query + key)))     # (batch_size, seq_len, seq_len)
+        a = torch.softmax(s, dim=2)     # (batch_size, seq_len, seq_len)
+        c = torch.bmm(a, x)     # (batch_size, seq_len, input_size)
+
+        h, _ = self.rnn(torch.cat((x, c), 2))
+        return h    # (batch_size, seq_len, 2 * hidden_size)
+
+
+class ExtendedBiDAFOutput(BiDAFOutput):
+    """
+    Modified version of BiDAFOutput where the dimension of the attention output can be changed.
+
+    Args:
+        att_size: size of attention layer output
+        hidden_size (int): Hidden size used in the BiDAF model.
+        drop_prob (float): Probability of zero-ing out activations.
+    """
+    def __init__(self, att_size, hidden_size, drop_prob):
+        super(ExtendedBiDAFOutput, self).__init__(hidden_size, drop_prob)
+        self.att_linear_1 = nn.Linear(att_size, 1)
+        self.mod_linear_1 = nn.Linear(2 * hidden_size, 1)
+
+        self.rnn = RNNEncoder(input_size=2 * hidden_size,
+                              hidden_size=hidden_size,
+                              num_layers=1,
+                              drop_prob=drop_prob)
+
+        self.att_linear_2 = nn.Linear(att_size, 1)
+        self.mod_linear_2 = nn.Linear(2 * hidden_size, 1)
