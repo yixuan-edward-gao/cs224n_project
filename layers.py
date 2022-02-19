@@ -247,6 +247,41 @@ class WordEmbedding(nn.Module):
         return emb
 
 
+# class CharEmbedding(nn.Module):
+#     """
+#     Character embedding layer used by BiDAF.
+#
+#     Args:
+#         char_vectors (torch.Tensor): Pre-trained word vectors.
+#         hidden_size (int): Size of hidden activations.
+#         drop_prob (float): Probability of zero-ing out activations
+#     """
+#     def __init__(self, char_vectors, hidden_size, drop_prob):
+#         max_word_length = 16
+#
+#         super(CharEmbedding, self).__init__()
+#         self.drop_prob = drop_prob
+#         self.embed = nn.Embedding.from_pretrained(char_vectors)
+#         self.conv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, stride=1, padding=1)
+#         self.maxpool = nn.MaxPool2d(kernel_size=max_word_length, stride=1)
+#         self.proj = nn.Linear(char_vectors.size(1) - max_word_length + 1, hidden_size, bias=False)
+#
+#     def forward(self, x):
+#         emb = self.embed(x)   # (batch_size, seq_len, max_word_len, embed_size)
+#         emb = F.dropout(emb, self.drop_prob, self.training)
+#
+#         batch_size, seq_len, word_len, embed_size = emb.size()
+#
+#         emb = emb.view(-1, 1, word_len, embed_size)
+#         emb = self.conv(emb)
+#         emb = self.maxpool(emb)
+#         emb = emb.view(-1, emb.size()[-1])
+#         emb = self.proj(emb)
+#         emb = emb.view(batch_size, seq_len, -1) # (batch_size, seq_len, hidden_size)
+#
+#         return emb
+
+
 class CharEmbedding(nn.Module):
     """
     Character embedding layer used by BiDAF.
@@ -255,16 +290,21 @@ class CharEmbedding(nn.Module):
         char_vectors (torch.Tensor): Pre-trained word vectors.
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations
+        kernel_height (int): height of kernel
     """
-    def __init__(self, char_vectors, hidden_size, drop_prob):
+    def __init__(self, char_vectors, hidden_size, drop_prob, kernel_height):
+        # hard coded constants...
         max_word_length = 16
+        word_vec_size = 300
+        char_vec_size = 64
 
         super(CharEmbedding, self).__init__()
         self.drop_prob = drop_prob
         self.embed = nn.Embedding.from_pretrained(char_vectors)
-        self.conv = nn.Conv2d(in_channels=1, out_channels=1, kernel_size=3, stride=1, padding=1)
-        self.maxpool = nn.MaxPool2d(kernel_size=max_word_length, stride=1)
-        self.proj = nn.Linear(char_vectors.size(1) - max_word_length + 1, hidden_size, bias=False)
+        self.conv = nn.Conv2d(in_channels=1, out_channels=word_vec_size,
+                              kernel_size=(kernel_height, char_vec_size), stride=1)
+        self.maxpool = nn.MaxPool2d(kernel_size=(max_word_length - kernel_height + 1, 1), stride=1)
+        self.proj = nn.Linear(word_vec_size, hidden_size, bias=False)
 
     def forward(self, x):
         emb = self.embed(x)   # (batch_size, seq_len, max_word_len, embed_size)
@@ -273,9 +313,10 @@ class CharEmbedding(nn.Module):
         batch_size, seq_len, word_len, embed_size = emb.size()
 
         emb = emb.view(-1, 1, word_len, embed_size)
-        emb = self.conv(emb)
-        emb = self.maxpool(emb)
-        emb = emb.view(-1, emb.size()[-1])
+        emb = self.conv(emb)    # (batch_size, word_vec_size, max_word_length - kernel_height + 1, 1)
+        emb = F.relu(emb)
+        emb = self.maxpool(emb) # (batch_size, word_vec_size, 1, 1)
+        emb = emb.squeeze() # (batch_size, word_vec_size)
         emb = self.proj(emb)
         emb = emb.view(batch_size, seq_len, -1) # (batch_size, seq_len, hidden_size)
 
