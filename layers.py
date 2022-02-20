@@ -324,11 +324,11 @@ class SelfAttention(nn.Module):
     See https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/r-net.pdf for details.
 
     """
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, hidden_size, att_dim):
         super(SelfAttention, self).__init__()
-        self.q = nn.Linear(input_size, input_size, bias=False)
-        self.k = nn.Linear(input_size, input_size, bias=False)
-        self.v = nn.Linear(input_size, 1, bias=False)
+        self.q = nn.Linear(input_size, att_dim, bias=False)
+        self.k = nn.Linear(input_size, att_dim, bias=False)
+        self.v = nn.Linear(att_dim, 1, bias=False)
         self.rnn = nn.RNN(input_size=2 * input_size, hidden_size=hidden_size, batch_first=True, bidirectional=True)
 
     def forward(self, x):

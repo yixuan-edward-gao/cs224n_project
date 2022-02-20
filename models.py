@@ -219,8 +219,9 @@ class BiDAFSelfAttention(nn.Module):
         word_vectors (torch.Tensor): Pre-trained word vectors.
         hidden_size (int): Number of features in the hidden state at each layer.
         drop_prob (float): Dropout probability.
+        att_dim (int): dimension of self attention layer
     """
-    def __init__(self, word_vectors, hidden_size, drop_prob=0.):
+    def __init__(self, word_vectors, hidden_size, drop_prob=0., att_dim=20):
         super(BiDAFSelfAttention, self).__init__()
         self.emb = layers.Embedding(word_vectors=word_vectors,
                                     hidden_size=hidden_size,
@@ -234,7 +235,9 @@ class BiDAFSelfAttention(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
                                          drop_prob=drop_prob)
 
-        self.self_att = layers.SelfAttention(input_size=2 * hidden_size, hidden_size=hidden_size)
+        self.self_att = layers.SelfAttention(input_size=2 * hidden_size,
+                                             hidden_size=hidden_size,
+                                             att_dim=att_dim)
 
         self.mod = layers.RNNEncoder(input_size=12 * hidden_size,
                                      hidden_size=hidden_size,
