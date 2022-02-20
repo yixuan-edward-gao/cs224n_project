@@ -237,7 +237,8 @@ class BiDAFSelfAttention(nn.Module):
 
         self.self_att = layers.SelfAttention(input_size=2 * hidden_size,
                                              hidden_size=hidden_size,
-                                             att_dim=att_dim)
+                                             att_dim=att_dim,
+                                             drop_prob=drop_prob)
 
         self.mod = layers.RNNEncoder(input_size=12 * hidden_size,
                                      hidden_size=hidden_size,

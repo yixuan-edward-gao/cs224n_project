@@ -324,24 +324,37 @@ class SelfAttention(nn.Module):
     See https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/r-net.pdf for details.
 
     """
-    def __init__(self, input_size, hidden_size, att_dim):
+    def __init__(self, input_size, hidden_size, att_dim, drop_prob):
         super(SelfAttention, self).__init__()
-        self.q = nn.Linear(input_size, att_dim, bias=False)
-        self.k = nn.Linear(input_size, att_dim, bias=False)
+        self.W1 = nn.Linear(input_size, att_dim, bias=False)
+        self.W2 = nn.Linear(input_size, att_dim, bias=False)
         self.v = nn.Linear(att_dim, 1, bias=False)
-        self.rnn = nn.RNN(input_size=2 * input_size, hidden_size=hidden_size, batch_first=True, bidirectional=True)
+
+        self.dropout = nn.Dropout(drop_prob)
+        self.gate = nn.Linear(input_size * 2, input_size * 2, bias=False)
+
+        self.rnn = nn.GRU(input_size=2 * input_size, hidden_size=hidden_size, bidirectional=True)
 
     def forward(self, x):
         batch_size, seq_len, _ = x.size()
-        query = torch.unsqueeze(self.q(x), 2).expand(-1, -1, seq_len, -1)   # (batch_size, seq_len, seq_len, m)
-        key = torch.transpose(
-            torch.unsqueeze(self.k(x), 2).expand(-1, -1, seq_len, -1), 1, 2)  # (batch_size, seq_len, seq_len, m)
-        s = torch.squeeze(self.v(torch.tanh(query + key)))     # (batch_size, seq_len, seq_len)
-        a = torch.softmax(s, dim=2)     # (batch_size, seq_len, seq_len)
-        c = torch.bmm(a, x)     # (batch_size, seq_len, input_size)
+        x = torch.transpose(x, 0, 1)    # (seq_len, batch_size, input_size)
+        W1x = self.W1(x)
+        W1x = self.dropout(W1x)
+        W2x = self.W2(x)
+        W2x = self.dropout(W2x)
 
-        h, _ = self.rnn(torch.cat((x, c), 2))
-        return h    # (batch_size, seq_len, 2 * hidden_size)
+        W1x = W1x.repeat(seq_len, 1, 1, 1)  # (seq_len, seq_len, batch_size, att_dim)
+        W2x = W2x.repeat(seq_len, 1, 1, 1)
+        W2x = torch.transpose(W2x, 0, 1)
+
+        s = self.v(torch.tanh(W1x + W2x))   # (seq_len, seq_len, batch_size, 1)
+        a = torch.softmax(s, dim=0)     # (seq_len, seq_len, batch_size, 1)
+        c = torch.squeeze((x.repeat(seq_len, 1, 1, 1) * a).sum(0))   # (seq_len, batch_size, input_size)
+
+        rnn_in = torch.cat((x, c), 2)   # (seq_len, batch_size, 2 * input_size)
+        rnn_in = torch.sigmoid(self.dropout(self.gate(rnn_in))) # (seq_len, batch_size, 2 * input_size)
+        h, _ = self.rnn(rnn_in)
+        return torch.transpose(h, 0, 1)    # (batch_size, seq_len, 2 * hidden_size)
 
 
 class ExtendedBiDAFOutput(BiDAFOutput):
