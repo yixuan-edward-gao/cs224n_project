@@ -343,13 +343,13 @@ class SelfAttention(nn.Module):
         W2x = self.W2(x)
         W2x = self.dropout(W2x)
 
-        W1x = W1x.repeat(seq_len, 1, 1, 1)  # (seq_len, seq_len, batch_size, att_dim)
-        W2x = W2x.repeat(seq_len, 1, 1, 1)
+        W1x = W1x.expand(seq_len, -1, -1, -1)  # (seq_len, seq_len, batch_size, att_dim)
+        W2x = W2x.expand(seq_len, -1, -1, -1)
         W2x = torch.transpose(W2x, 0, 1)
 
         s = self.v(torch.tanh(W1x + W2x))   # (seq_len, seq_len, batch_size, 1)
         a = torch.softmax(s, dim=0)     # (seq_len, seq_len, batch_size, 1)
-        c = torch.squeeze((x.repeat(seq_len, 1, 1, 1) * a).sum(0))   # (seq_len, batch_size, input_size)
+        c = (x.expand(seq_len, -1, -1, -1) * a).sum(0)   # (seq_len, batch_size, input_size)
 
         rnn_in = torch.cat((x, c), 2)   # (seq_len, batch_size, 2 * input_size)
         rnn_in = torch.sigmoid(self.dropout(self.gate(rnn_in))) # (seq_len, batch_size, 2 * input_size)
