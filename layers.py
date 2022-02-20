@@ -318,43 +318,65 @@ class AnswerPointer(nn.Module):
         return beta_start, beta_end
 
 
-class SelfAttention(nn.Module):
-    """
-    Self attention layer for context, as presented in R-Net.
-    See https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/r-net.pdf for details.
+# class SelfAttention(nn.Module):
+#     """
+#     Self attention layer for context, as presented in R-Net.
+#     See https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/r-net.pdf for details.
+#
+#     """
+#     def __init__(self, input_size, hidden_size, att_dim, drop_prob):
+#         super(SelfAttention, self).__init__()
+#         self.W1 = nn.Linear(input_size, att_dim, bias=False)
+#         self.W2 = nn.Linear(input_size, att_dim, bias=False)
+#         self.v = nn.Linear(att_dim, 1, bias=False)
+#
+#         self.dropout = nn.Dropout(drop_prob)
+#         self.gate = nn.Linear(input_size * 2, input_size * 2, bias=False)
+#
+#         self.rnn = nn.GRU(input_size=2 * input_size, hidden_size=hidden_size, bidirectional=True)
+#
+#     def forward(self, x):
+#         batch_size, seq_len, _ = x.size()
+#         x = torch.transpose(x, 0, 1)    # (seq_len, batch_size, input_size)
+#         W1x = self.W1(x)
+#         W1x = self.dropout(W1x)
+#         W2x = self.W2(x)
+#         W2x = self.dropout(W2x)
+#
+#         W1x = W1x.expand(seq_len, -1, -1, -1)  # (seq_len, seq_len, batch_size, att_dim)
+#         W2x = W2x.expand(seq_len, -1, -1, -1)
+#         W2x = torch.transpose(W2x, 0, 1)
+#
+#         s = self.v(torch.tanh(W1x + W2x))   # (seq_len, seq_len, batch_size, 1)
+#         a = torch.softmax(s, dim=0)     # (seq_len, seq_len, batch_size, 1)
+#         c = (x.expand(seq_len, -1, -1, -1) * a).sum(0)   # (seq_len, batch_size, input_size)
+#
+#         rnn_in = torch.cat((x, c), 2)   # (seq_len, batch_size, 2 * input_size)
+#         rnn_in = torch.sigmoid(self.dropout(self.gate(rnn_in))) # (seq_len, batch_size, 2 * input_size)
+#         h, _ = self.rnn(rnn_in)
+#         return torch.transpose(h, 0, 1)    # (batch_size, seq_len, 2 * hidden_size)
 
-    """
-    def __init__(self, input_size, hidden_size, att_dim, drop_prob):
-        super(SelfAttention, self).__init__()
-        self.W1 = nn.Linear(input_size, att_dim, bias=False)
-        self.W2 = nn.Linear(input_size, att_dim, bias=False)
-        self.v = nn.Linear(att_dim, 1, bias=False)
 
-        self.dropout = nn.Dropout(drop_prob)
-        self.gate = nn.Linear(input_size * 2, input_size * 2, bias=False)
-
-        self.rnn = nn.GRU(input_size=2 * input_size, hidden_size=hidden_size, bidirectional=True)
-
-    def forward(self, x):
-        batch_size, seq_len, _ = x.size()
-        x = torch.transpose(x, 0, 1)    # (seq_len, batch_size, input_size)
-        W1x = self.W1(x)
-        W1x = self.dropout(W1x)
-        W2x = self.W2(x)
-        W2x = self.dropout(W2x)
-
-        W1x = W1x.expand(seq_len, -1, -1, -1)  # (seq_len, seq_len, batch_size, att_dim)
-        W2x = W2x.expand(seq_len, -1, -1, -1)
-        W2x = torch.transpose(W2x, 0, 1)
-
-        s = self.v(torch.tanh(W1x + W2x))   # (seq_len, seq_len, batch_size, 1)
-        a = torch.softmax(s, dim=0)     # (seq_len, seq_len, batch_size, 1)
-        c = (x.expand(seq_len, -1, -1, -1) * a).sum(0)   # (seq_len, batch_size, input_size)
-
-        rnn_in = torch.cat((x, c), 2)   # (seq_len, batch_size, 2 * input_size)
-        rnn_in = torch.sigmoid(self.dropout(self.gate(rnn_in))) # (seq_len, batch_size, 2 * input_size)
-        h, _ = self.rnn(rnn_in)
-        return torch.transpose(h, 0, 1)    # (batch_size, seq_len, 2 * hidden_size)
+# class SelfAttention(BiDAFAttention):
+#     def __init__(self, hidden_size, drop_prob):
+#         super(SelfAttention, self).__init__(hidden_size, drop_prob)
+#
+#     def forward(self, c, c_mask):
+#         batch_size, c_len, _ = c.size()
+#         # q_len = q.size(1)
+#         s = self.get_similarity_matrix(c, c)  # (batch_size, c_len, c_len)
+#         c_mask = c_mask.view(batch_size, c_len, 1)  # (batch_size, c_len, 1)
+#         # q_mask = q_mask.view(batch_size, 1, q_len)  # (batch_size, 1, q_len)
+#         s1 = masked_softmax(s, q_mask, dim=2)  # (batch_size, c_len, q_len)
+#         s2 = masked_softmax(s, c_mask, dim=1)  # (batch_size, c_len, q_len)
+#
+#         # (bs, c_len, q_len) x (bs, q_len, hid_size) => (bs, c_len, hid_size)
+#         a = torch.bmm(s1, q)
+#         # (bs, c_len, c_len) x (bs, c_len, hid_size) => (bs, c_len, hid_size)
+#
+#         x = torch.cat([a, c * a], dim=2)  # (bs, c_len, 4 * hid_size)
+#
+#         return x
 
 
 class ExtendedBiDAFOutput(BiDAFOutput):
