@@ -223,6 +223,7 @@ class BiDAFSelfAttention(nn.Module):
     """
     def __init__(self, word_vectors, hidden_size, drop_prob=0., att_dim=20):
         super(BiDAFSelfAttention, self).__init__()
+        self.hidden_size = hidden_size
         self.emb = layers.Embedding(word_vectors=word_vectors,
                                     hidden_size=hidden_size,
                                     drop_prob=drop_prob)
@@ -264,9 +265,8 @@ class BiDAFSelfAttention(nn.Module):
         att = self.att(c_enc, q_enc,
                        c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
 
-        hidden_size = att.size()[2] / 8
         # (batch_size, c_len, 2 * hidden_size)
-        self_att = self.self_att(c_enc, c_enc, c_mask, c_mask)[:, :, (2 * hidden_size):(-2 * hidden_size)]
+        self_att = self.self_att(c_enc, c_enc, c_mask, c_mask)[:, :, (2 * self.hidden_size):(-2 * self.hidden_size)]
 
         att = torch.cat([att, self_att], 2) # (batch_size, c_len, 12 * hidden_size)
 
