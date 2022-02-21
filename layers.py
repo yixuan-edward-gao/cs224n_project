@@ -339,17 +339,21 @@ class SelfAttention(nn.Module):
         x_copy = torch.transpose(x, 1, 2)  # (batch_size, input_size, seq_len)
 
         s = torch.bmm(Wx, x_copy)   # (batch_size, seq_len, seq_len)
-        mask = torch.eye(seq_len)
+        mask = (torch.eye(seq_len) == 1).to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
         s.masked_fill_(mask, float('-inf'))     # mask out similarity between the same tokens
-        a = torch.softmax(s, dim=1)     # (batch_size, seq_len, seq_len)
+        a = torch.softmax(s, dim=2)     # (batch_size, seq_len, seq_len)
 
+        c = a @ x
+
+        '''
         x_expand = torch.unsqueeze(x, 1)
         x_expand = x_expand.repeat(1, seq_len, 1, 1)    # (batch_size, seq_len, seq_len, input_size)
         x_expand = torch.transpose(x_expand, 1, 2)    # (batch_size, seq_len, seq_len, input_size)
         a = torch.unsqueeze(a, 3)   # (batch_size, seq_len, seq_len, 1)
         c = x_expand * a   # (batch_size, seq_len, seq_len, input_size)
         c = c.sum(1)    # (batch_size, seq_len, input_size)
-
+        '''
+        
         c = torch.relu(self.proj(c))
 
         return self.dropout(x + c)    # (batch_size, seq_len, 2 * hidden_size)
@@ -386,8 +390,9 @@ class TransformerAttention(nn.Module):
         q = self.query(x).view(batch_size, seq_len, self.n_heads, input_size // self.n_heads).transpose(1, 2)
         v = self.value(x).view(batch_size, seq_len, self.n_heads, input_size // self.n_heads).transpose(1, 2)
 
+        mask = (torch.eye(seq_len) == 1).to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att.masked_fill_(torch.eye(seq_len), float('-inf'))
+        att.masked_fill_(mask, float('-inf'))
         att = torch.softmax(att, dim=-1)
         att = self.dropout(att)
 
