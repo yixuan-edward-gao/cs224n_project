@@ -3,6 +3,7 @@
 Author:
     Chris Chute (chute@stanford.edu)
 """
+import math
 
 import torch
 import torch.nn as nn
@@ -320,63 +321,106 @@ class AnswerPointer(nn.Module):
 
 class SelfAttention(nn.Module):
     """
-    Self attention layer for context, as presented in R-Net.
-    See https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/r-net.pdf for details.
-
+    xxx
     """
-    def __init__(self, input_size, hidden_size, num_layers, drop_prob):
+    def __init__(self, input_size, hidden_size, drop_prob):
         super(SelfAttention, self).__init__()
-        self.W1 = nn.Linear(input_size, hidden_size, bias=False)
-        self.W2 = nn.Linear(input_size, hidden_size, bias=False)
-        self.v = nn.Linear(hidden_size, 1, bias=False)
-
+        self.W = nn.Linear(input_size, input_size, bias=False)
         self.dropout = nn.Dropout(drop_prob)
-        self.gate = nn.Linear(input_size * 2, input_size * 2, bias=False)
-
-        self.rnn = nn.GRU(input_size=2 * input_size,
-                          hidden_size=hidden_size,
-                          batch_first=True,
-                          num_layers=num_layers,
-                          bidirectional=True)
+        self.proj = nn.Linear(input_size, input_size)
+        # self.rnn = nn.GRU(input_size=input_size,
+        #                   hidden_size=hidden_size,
+        #                   batch_first=True,
+        #                   bidirectional=True)
 
     def forward(self, x):
-        batch_size, seq_len, _ = x.size()
-        x = torch.transpose(x, 0, 1)    # (seq_len, batch_size, input_size)
-        W1x = self.W1(x)
-        W2x = self.W2(x)
+        batch_size, seq_len, input_size = x.size()
+        Wx = self.W(x)  # (batch_size, seq_len, input_size)
+        x_copy = torch.transpose(x, 1, 2)  # (batch_size, input_size, seq_len)
 
-        W1x = W1x.expand(seq_len, -1, -1, -1)  # (seq_len, seq_len, batch_size, att_dim)
-        W2x = W2x.expand(seq_len, -1, -1, -1)
-        W2x = torch.transpose(W2x, 0, 1)
+        s = torch.bmm(Wx, x_copy)   # (batch_size, seq_len, seq_len)
+        mask = torch.eye(seq_len)
+        s.masked_fill_(mask, float('-inf'))     # mask out similarity between the same tokens
+        a = torch.softmax(s, dim=1)     # (batch_size, seq_len, seq_len)
 
-        s = self.v(torch.tanh(W1x + W2x))   # (seq_len, seq_len, batch_size, 1)
-        a = torch.softmax(s, dim=0)     # (seq_len, seq_len, batch_size, 1)
-        c = (x.expand(seq_len, -1, -1, -1) * a).sum(0)   # (seq_len, batch_size, input_size)
+        x_expand = torch.unsqueeze(x, 1)
+        x_expand = x_expand.repeat(1, seq_len, 1, 1)    # (batch_size, seq_len, seq_len, input_size)
+        x_expand = torch.transpose(x_expand, 1, 2)    # (batch_size, seq_len, seq_len, input_size)
+        a = torch.unsqueeze(a, 3)   # (batch_size, seq_len, seq_len, 1)
+        c = x_expand * a   # (batch_size, seq_len, seq_len, input_size)
+        c = c.sum(1)    # (batch_size, seq_len, input_size)
 
-        rnn_in = torch.cat((x, c), 2)   # (seq_len, batch_size, 2 * input_size)
-        rnn_in = rnn_in * torch.sigmoid(self.gate(rnn_in))  # (seq_len, batch_size, 2 * input_size)
-        h, _ = self.rnn(rnn_in)
-        return self.dropout(torch.transpose(h, 0, 1))    # (batch_size, seq_len, 2 * hidden_size)
+        c = torch.relu(self.proj(c))
+
+        return self.dropout(x + c)    # (batch_size, seq_len, 2 * hidden_size)
 
 
-class ExtendedBiDAFOutput(BiDAFOutput):
+class TransformerAttention(nn.Module):
+    def __init__(self, input_size, num_heads, drop_prob):
+        super(TransformerAttention, self).__init__()
+        assert(input_size % num_heads == 0)
+
+        self.key = nn.Linear(input_size, input_size, bias=False)
+        self.query = nn.Linear(input_size, input_size, bias=False)
+        self.value = nn.Linear(input_size, input_size, bias=False)
+
+        self.dropout = nn.Dropout(drop_prob)
+
+        self.proj = nn.Linear(input_size, input_size)
+
+        self.ln1 = nn.LayerNorm(input_size)
+        self.ln2 = nn.LayerNorm(input_size)
+        self.mlp = nn.Sequential(nn.Linear(input_size, 4 * input_size),
+                                 nn.GELU(),
+                                 nn.Linear(4 * input_size, input_size),
+                                 self.dropout)
+
+        self.n_heads = num_heads
+
+    def forward(self, x):
+        x = self.ln1(x)
+
+        batch_size, seq_len, input_size = x.size()
+
+        k = self.key(x).view(batch_size, seq_len, self.n_heads, input_size // self.n_heads).transpose(1, 2)
+        q = self.query(x).view(batch_size, seq_len, self.n_heads, input_size // self.n_heads).transpose(1, 2)
+        v = self.value(x).view(batch_size, seq_len, self.n_heads, input_size // self.n_heads).transpose(1, 2)
+
+        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        att.masked_fill_(torch.eye(seq_len), float('-inf'))
+        att = torch.softmax(att, dim=-1)
+        att = self.dropout(att)
+
+        y = att @ v
+        y = y.transpose(1, 2).contiguous().view(batch_size, seq_len, input_size)
+        y = self.dropout(self.proj(y))
+
+        x = x + y
+        return x + self.mlp(self.ln2(x))
+
+
+class ConditionalBiDAFOutput(BiDAFOutput):
     """
-    Modified version of BiDAFOutput where the dimension of the attention output can be changed.
+    xxx
 
     Args:
         att_size: size of attention layer output
         hidden_size (int): Hidden size used in the BiDAF model.
         drop_prob (float): Probability of zero-ing out activations.
     """
-    def __init__(self, att_size, hidden_size, drop_prob):
-        super(ExtendedBiDAFOutput, self).__init__(hidden_size, drop_prob)
-        self.att_linear_1 = nn.Linear(att_size, 1)
-        self.mod_linear_1 = nn.Linear(2 * hidden_size, 1)
+    def __init__(self, hidden_size, drop_prob):
+        super(ConditionalBiDAFOutput, self).__init__(hidden_size, drop_prob)
+        self.proj = nn.Linear(4 * hidden_size, 2 * hidden_size)
 
-        self.rnn = RNNEncoder(input_size=2 * hidden_size,
-                              hidden_size=hidden_size,
-                              num_layers=1,
-                              drop_prob=drop_prob)
+    def forward(self, att, mod, mask):
+        # Shapes: (batch_size, seq_len, 1)
+        logits_1 = self.att_linear_1(att) + self.mod_linear_1(mod)
+        mod_2 = self.rnn(mod, mask.sum(-1))
+        mod_2 = self.proj(torch.cat([mod, mod_2], 2))
+        logits_2 = self.att_linear_2(att) + self.mod_linear_2(mod_2)
 
-        self.att_linear_2 = nn.Linear(att_size, 1)
-        self.mod_linear_2 = nn.Linear(2 * hidden_size, 1)
+        # Shapes: (batch_size, seq_len)
+        log_p1 = masked_softmax(logits_1.squeeze(), mask, log_softmax=True)
+        log_p2 = masked_softmax(logits_2.squeeze(), mask, log_softmax=True)
+
+        return log_p1, log_p2
