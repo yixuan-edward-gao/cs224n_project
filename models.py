@@ -351,6 +351,11 @@ def init_model(name, split, **kwargs):
                                   hidden_size=kwargs['hidden_size'],
                                   drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
                                   att_type='multiplicative')
+    elif name == 'gated':
+        return BiDAFSelfAttention(word_vectors=kwargs['word_vectors'],
+                                  hidden_size=kwargs['hidden_size'],
+                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
+                                  att_type='gated multiplicative')
     elif name == 'conditional':
         return BiDAFConditionalOutput(word_vectors=kwargs['word_vectors'],
                                       hidden_size=kwargs['hidden_size'],
