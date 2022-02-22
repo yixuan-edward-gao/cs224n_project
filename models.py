@@ -241,12 +241,20 @@ class BiDAFSelfAttention(nn.Module):
             self.self_att = lambda x: x
         elif att_type == 'multiplicative':
             self.self_att = layers.MultiplicativeSelfAttention(input_size=8 * hidden_size,
-                                                               hidden_size=4 * hidden_size,
                                                                drop_prob=drop_prob)
         elif att_type == 'gated multiplicative':
             self.self_att = layers.GatedMultiplicativeSelfAttention(input_size=8 * hidden_size,
                                                                     hidden_size=4 * hidden_size,
                                                                     drop_prob=drop_prob)
+        elif att_type == 'additive':
+            self.self_att = layers.AdditiveSelfAttention(input_size=8 * hidden_size,
+                                                         att_dim=kwargs['att_dim'],
+                                                         drop_prob=drop_prob)
+        elif att_type == 'gated additive':
+            self.self_att = layers.GatedAdditiveSelfAttention(input_size=8 * hidden_size,
+                                                              att_dim=kwargs['att_dim'],
+                                                              hidden_size=4 * hidden_size,
+                                                              drop_prob=drop_prob)
         elif att_type == 'transformer':
             self.self_att = layers.TransformerSelfAttention(input_size=8 * hidden_size,
                                                             num_heads=kwargs['n_heads'],
@@ -356,6 +364,18 @@ def init_model(name, split, **kwargs):
                                   hidden_size=kwargs['hidden_size'],
                                   drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
                                   att_type='gated multiplicative')
+    elif name == 'additive':
+        return BiDAFSelfAttention(word_vectors=kwargs['word_vectors'],
+                                  hidden_size=kwargs['hidden_size'],
+                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
+                                  att_type='additive',
+                                  att_dim=8 * kwargs['hidden_size'])
+    elif name == 'rnet':
+        return BiDAFSelfAttention(word_vectors=kwargs['word_vectors'],
+                                  hidden_size=kwargs['hidden_size'],
+                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
+                                  att_type='gated additive',
+                                  att_dim=8 * kwargs['hidden_size'])
     elif name == 'conditional':
         return BiDAFConditionalOutput(word_vectors=kwargs['word_vectors'],
                                       hidden_size=kwargs['hidden_size'],
