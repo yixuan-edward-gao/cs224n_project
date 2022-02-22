@@ -222,7 +222,7 @@ class BiDAFSelfAttention(nn.Module):
         drop_prob (float): Dropout probability.
         att_dim (int): dimension of self attention layer
     """
-    def __init__(self, word_vectors, hidden_size, drop_prob=0.):
+    def __init__(self, word_vectors, hidden_size, att_type=None, drop_prob=0., **kwargs):
         super(BiDAFSelfAttention, self).__init__()
         self.hidden_size = hidden_size
         self.emb = layers.Embedding(word_vectors=word_vectors,
@@ -237,9 +237,22 @@ class BiDAFSelfAttention(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
                                          drop_prob=drop_prob)
 
-        self.self_att = layers.SelfAttention(input_size=8 * hidden_size,
-                                             hidden_size=4 * hidden_size,
-                                             drop_prob=drop_prob)
+        if att_type is None:
+            self.self_att = lambda x: x
+        elif att_type == 'multiplicative':
+            self.self_att = layers.MultiplicativeSelfAttention(input_size=8 * hidden_size,
+                                                               hidden_size=4 * hidden_size,
+                                                               drop_prob=drop_prob)
+        elif att_type == 'gated multiplicative':
+            self.self_att = layers.GatedMultiplicativeSelfAttention(input_size=8 * hidden_size,
+                                                                    hidden_size=4 * hidden_size,
+                                                                    drop_prob=drop_prob)
+        elif att_type == 'transformer':
+            self.self_att = layers.TransformerSelfAttention(input_size=8 * hidden_size,
+                                                            num_heads=kwargs['n_heads'],
+                                                            drop_prob=drop_prob)
+        else:
+            raise ValueError(f'{att_type} attention has not been implemented')
 
         self.mod = layers.RNNEncoder(input_size=8 * hidden_size,
                                      hidden_size=hidden_size,
@@ -318,59 +331,6 @@ class BiDAFConditionalOutput(nn.Module):
         return out
 
 
-class BiDAFTransformerAttention(nn.Module):
-    """
-    xxx
-    """
-    def __init__(self, word_vectors, hidden_size, drop_prob=0., n_heads=4):
-        super(BiDAFTransformerAttention, self).__init__()
-        self.hidden_size = hidden_size
-        self.emb = layers.Embedding(word_vectors=word_vectors,
-                                    hidden_size=hidden_size,
-                                    drop_prob=drop_prob)
-
-        self.enc = layers.RNNEncoder(input_size=hidden_size,
-                                     hidden_size=hidden_size,
-                                     num_layers=1,
-                                     drop_prob=drop_prob)
-
-        self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
-                                         drop_prob=drop_prob)
-
-        self.self_att = layers.TransformerAttention(input_size=8 * hidden_size,
-                                                    num_heads=n_heads,
-                                                    drop_prob=drop_prob)
-
-        self.mod = layers.RNNEncoder(input_size=8 * hidden_size,
-                                     hidden_size=hidden_size,
-                                     num_layers=2,
-                                     drop_prob=drop_prob)
-
-        self.out = layers.BiDAFOutput(hidden_size=hidden_size,
-                                      drop_prob=drop_prob)
-
-    def forward(self, cw_idxs, qw_idxs, *args):
-        c_mask = torch.zeros_like(cw_idxs) != cw_idxs
-        q_mask = torch.zeros_like(qw_idxs) != qw_idxs
-        c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
-
-        c_emb = self.emb(cw_idxs)         # (batch_size, c_len, hidden_size)
-        q_emb = self.emb(qw_idxs)         # (batch_size, q_len, hidden_size)
-
-        c_enc = self.enc(c_emb, c_len)    # (batch_size, c_len, 2 * hidden_size)
-        q_enc = self.enc(q_emb, q_len)    # (batch_size, q_len, 2 * hidden_size)
-
-        att = self.att(c_enc, q_enc, c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
-
-        self_att = self.self_att(att)   # (batch_size, c_len, 8 * hidden_size)
-
-        mod = self.mod(self_att, c_len)        # (batch_size, c_len, 2 * hidden_size)
-
-        out = self.out(att, mod, c_mask)  # 2 tensors, each (batch_size, c_len)
-
-        return out
-
-
 def init_model(name, split, **kwargs):
     name = name.lower()
     if name == 'bidaf':
@@ -389,14 +349,17 @@ def init_model(name, split, **kwargs):
     elif name == 'self_att':
         return BiDAFSelfAttention(word_vectors=kwargs['word_vectors'],
                                   hidden_size=kwargs['hidden_size'],
-                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
+                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
+                                  att_type='multiplicative')
     elif name == 'conditional':
         return BiDAFConditionalOutput(word_vectors=kwargs['word_vectors'],
                                       hidden_size=kwargs['hidden_size'],
                                       drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
     elif name == 'transformer':
-        return BiDAFTransformerAttention(word_vectors=kwargs['word_vectors'],
-                                         hidden_size=kwargs['hidden_size'],
-                                         drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
+        return BiDAFSelfAttention(word_vectors=kwargs['word_vectors'],
+                                  hidden_size=kwargs['hidden_size'],
+                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
+                                  att_type='transformer',
+                                  n_heads=4)
 
     raise ValueError(f'No model named {name}')

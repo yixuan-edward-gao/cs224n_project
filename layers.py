@@ -319,49 +319,48 @@ class AnswerPointer(nn.Module):
         return beta_start, beta_end
 
 
-class SelfAttention(nn.Module):
+class MultiplicativeSelfAttention(nn.Module):
     """
     xxx
     """
-    def __init__(self, input_size, hidden_size, drop_prob):
-        super(SelfAttention, self).__init__()
+    def __init__(self, input_size, drop_prob):
+        super(MultiplicativeSelfAttention, self).__init__()
         self.W = nn.Linear(input_size, input_size, bias=False)
         self.dropout = nn.Dropout(drop_prob)
         self.proj = nn.Linear(input_size, input_size)
-        # self.rnn = nn.GRU(input_size=input_size,
-        #                   hidden_size=hidden_size,
-        #                   batch_first=True,
-        #                   bidirectional=True)
 
     def forward(self, x):
-        batch_size, seq_len, input_size = x.size()
-        Wx = self.W(x)  # (batch_size, seq_len, input_size)
-        x_copy = torch.transpose(x, 1, 2)  # (batch_size, input_size, seq_len)
-
-        s = torch.bmm(Wx, x_copy)   # (batch_size, seq_len, seq_len)
-        mask = (torch.eye(seq_len) == 1).to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
-        s.masked_fill_(mask, float('-inf'))     # mask out similarity between the same tokens
-        a = torch.softmax(s, dim=2)     # (batch_size, seq_len, seq_len)
-
-        c = a @ x
-
-        '''
-        x_expand = torch.unsqueeze(x, 1)
-        x_expand = x_expand.repeat(1, seq_len, 1, 1)    # (batch_size, seq_len, seq_len, input_size)
-        x_expand = torch.transpose(x_expand, 1, 2)    # (batch_size, seq_len, seq_len, input_size)
-        a = torch.unsqueeze(a, 3)   # (batch_size, seq_len, seq_len, 1)
-        c = x_expand * a   # (batch_size, seq_len, seq_len, input_size)
-        c = c.sum(1)    # (batch_size, seq_len, input_size)
-        '''
-        
+        c = calc_multiplicative_attention(self.W, x)       # (batch_size, seq_len, input_size)
         c = torch.relu(self.proj(c))
+        return self.dropout(x + c)    # (batch_size, seq_len, input_size)
 
-        return self.dropout(x + c)    # (batch_size, seq_len, 2 * hidden_size)
+
+class GatedMultiplicativeSelfAttention(nn.Module):
+    """
+    xxx
+    """
+
+    def __init__(self, input_size, hidden_size, drop_prob):
+        super(GatedMultiplicativeSelfAttention, self).__init__()
+        self.W = nn.Linear(input_size, input_size, bias=False)
+        self.dropout = nn.Dropout(drop_prob)
+        self.gate = nn.Sequential(nn.Linear(2 * input_size, 2 * input_size, bias=False),
+                                  nn.Sigmoid())
+        self.rnn = nn.GRU(input_size=2 * input_size,
+                          hidden_size=hidden_size,
+                          bidirectional=True,
+                          batch_first=True)
+        self.proj = nn.Linear(2 * hidden_size, input_size)
+
+    def forward(self, x):
+        c = calc_multiplicative_attention(self.W, x)    # (batch_size, seq_len, input_size)
+        h = self.dropout(calc_gated_attention(x, c, self.gate, self.rnn, self.proj))
+        return x + h  # (batch_size, seq_len, input_size)
 
 
-class TransformerAttention(nn.Module):
+class TransformerSelfAttention(nn.Module):
     def __init__(self, input_size, num_heads, drop_prob):
-        super(TransformerAttention, self).__init__()
+        super(TransformerSelfAttention, self).__init__()
         assert(input_size % num_heads == 0)
 
         self.key = nn.Linear(input_size, input_size, bias=False)
@@ -429,3 +428,25 @@ class ConditionalBiDAFOutput(BiDAFOutput):
         log_p2 = masked_softmax(logits_2.squeeze(), mask, log_softmax=True)
 
         return log_p1, log_p2
+
+
+# helper functions
+def calc_multiplicative_attention(weight, x):
+    batch_size, seq_len, input_size = x.size()
+    Wx = weight(x)  # (batch_size, seq_len, input_size)
+    x_copy = torch.transpose(x, 1, 2)  # (batch_size, input_size, seq_len)
+
+    s = torch.bmm(Wx, x_copy)  # (batch_size, seq_len, seq_len)
+    mask = (torch.eye(seq_len) == 1).to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
+    s.masked_fill_(mask, float('-inf'))  # mask out similarity between the same tokens
+    a = torch.softmax(s, dim=2)  # (batch_size, seq_len, seq_len)
+    c = torch.bmm(a, x)  # (batch_size, seq_len, input_size)
+
+    return c
+
+
+def calc_gated_attention(x, c, gate, rnn, proj=None):
+    rnn_in = torch.cat([x, c], dim=2)       # (batch_size, seq_len, 2 * input_size)
+    rnn_in = rnn_in * gate(rnn_in)      # (batch_size, seq_len, 2 * input_size)
+    h, _ = rnn(rnn_in)  # (batch_size, seq_len, 2 * hidden_size)
+    return h if proj is None else proj(h)   # (batch_size, seq_len, input_size)
