@@ -7,7 +7,7 @@ Author:
 import layers
 import torch
 import torch.nn as nn
-
+from qanet import QANet
 
 class BiDAF(nn.Module):
     """Baseline BiDAF model for SQuAD.
@@ -482,5 +482,12 @@ def init_model(name, split, **kwargs):
                          char_vectors=kwargs['char_vectors'],
                          hidden_size=kwargs['hidden_size'],
                          drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
+    elif name == 'qanet':
+        return QANet(word_vectors=kwargs['word_vectors'],
+                     char_vectors=kwargs['char_vectors'],
+                     hidden_size=kwargs['hidden_size'],
+                     n_heads=4,
+                     encoder_size=128,
+                     drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
 
     raise ValueError(f'No model named {name}')
