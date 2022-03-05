@@ -13,21 +13,17 @@ class PositionalEncoding(nn.Module):
     """
     Modified from https://pytorch.org/tutorials/beginner/transformer_tutorial.html
     """
-    def __init__(self, embed_size, drop_prob=0.1, max_len=5000):
-        super().__init__()
-        self.dropout = nn.Dropout(p=drop_prob)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, embed_size, 2) * (-math.log(10000.0) / embed_size))
-        pe = torch.zeros(1, embed_size, max_len)
-        pe[0, 0::2, :] = torch.sin(position * div_term).transpose(0, 1)
-        pe[0, 1::2, :] = torch.cos(position * div_term).transpose(0, 1)
-        self.register_buffer('pe', pe)
+    def __init__(self, embed_size, max_length=5000):
+        super(PositionalEncoding, self).__init__()
+        f = torch.Tensor([10000 ** (-i / embed_size) if i % 2 == 0 else -10000 ** ((1 - i) / embed_size)
+                          for i in range(embed_size)]).unsqueeze(dim=1)
+        phases = torch.Tensor([0 if i % 2 == 0 else math.pi / 2 for i in range(embed_size)]).unsqueeze(dim=1)
+        pos = torch.arange(max_length).repeat(embed_size, 1).to(torch.float)
+        self.pos_encoding = nn.Parameter(torch.sin(torch.add(torch.mul(pos, f), phases)), requires_grad=False)
 
     def forward(self, x):
-        # (batch_size, embed_size, seq_len)
-        x = x + self.pe[:, :, :x.size(2)]
-        return self.dropout(x)
+        x = x + self.pos_encoding[:, :x.shape[-1]]
+        return x
 
 
 class DepthwiseSeparableConv(nn.Module):
@@ -83,7 +79,7 @@ class QANetEmbedding(nn.Module):
         c_emb = c_emb.permute(0, 3, 1, 2)   # (batch_size, char_emb_size, seq_len, max char per word)
         c_emb = self.conv(c_emb)    # (batch_size, char_emb_size, seq_len, max char per word)
         c_emb = torch.relu(c_emb)
-        c_emb, _ = torch.max(c_emb, dim=-1) # (batch_size, char_emb_size, seq_len)
+        c_emb, _ = torch.max(c_emb, dim=-1)     # (batch_size, char_emb_size, seq_len)
         w_emb = self.dropout(w_emb)
         c_emb = self.dropout(c_emb)
         c_emb = c_emb.transpose(1, 2)   # (batch_size, seq_len, char_emb_size)
@@ -199,6 +195,36 @@ class QANetOutput(nn.Module):
         return log_p1, log_p2
 
 
+class CQAttention(nn.Module):
+    def __init__(self, d_model, dropout):
+        super(CQAttention, self).__init__()
+        w = torch.empty(d_model * 3)
+        lim = 1 / d_model
+        nn.init.uniform_(w, -math.sqrt(lim), math.sqrt(lim))
+        self.w = nn.Parameter(w)
+        self.dropout = torch.dropout(dropout)
+
+    def forward(self, C, Q, cmask, qmask):
+        C = C.transpose(1, 2)
+        Q = Q.transpose(1, 2)
+        cmask = cmask.unsqueeze(2)
+        qmask = qmask.unsqueeze(1)
+
+        shape = (C.size(0), C.size(1), Q.size(1), C.size(2))
+        Ct = C.unsqueeze(2).expand(shape)
+        Qt = Q.unsqueeze(1).expand(shape)
+        CQ = torch.mul(Ct, Qt)
+        S = torch.cat([Ct, Qt, CQ], dim=3)
+        S = torch.matmul(S, self.w)
+        S1 = torch.softmax(mask_logits(S, qmask), dim=2)
+        S2 = torch.softmax(mask_logits(S, cmask), dim=1)
+        A = torch.bmm(S1, Q)
+        B = torch.bmm(torch.bmm(S1, S2.transpose(1, 2)), C)
+        out = torch.cat([C, A, torch.mul(C, A), torch.mul(C, B)], dim=2)
+        out = self.dropout(out)
+        return out.transpose(1, 2)
+
+
 class QANet(nn.Module):
     def __init__(self, word_vectors, char_vectors, n_heads, encoder_size, drop_prob):
         super(QANet, self).__init__()
@@ -211,7 +237,8 @@ class QANet(nn.Module):
         self.emb_enc = EncoderBlock(num_conv=4, num_channel=encoder_size, kernel_size=7,
                                     input_size=encoder_size, n_head=n_heads, drop_prob=drop_prob)
 
-        self.att = layers.BiDAFAttention(encoder_size, drop_prob)
+        #self.att = layers.BiDAFAttention(encoder_size, drop_prob)
+        self.att = CQAttention(encoder_size, drop_prob)
         self.att_squeeze = DepthwiseSeparableConv(encoder_size * 4, encoder_size, 5)
 
         self.modeling = nn.ModuleList([EncoderBlock(num_conv=2, num_channel=encoder_size,
