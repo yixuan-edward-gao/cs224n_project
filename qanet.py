@@ -168,16 +168,6 @@ class EncoderBlock(nn.Module):
         return out
 
 
-class EncoderConvBlock(nn.Module):
-    def __init__(self, kernel_size, in_channels, out_channels, emb_size):
-        super(EncoderConvBlock, self).__init__()
-        self.conv = DepthwiseSeparableConv(kernel_size, in_channels, out_channels)
-        self.layer_norm = nn.LayerNorm(emb_size)
-
-    def forward(self, x):
-        return x + self.conv(self.layer_norm(x))
-
-
 class QANetOutput(nn.Module):
     def __init__(self, input_size):
         super(QANetOutput, self).__init__()
@@ -202,11 +192,11 @@ class CQAttention(nn.Module):
         lim = 1 / d_model
         nn.init.uniform_(w, -math.sqrt(lim), math.sqrt(lim))
         self.w = nn.Parameter(w)
-        self.dropout = torch.dropout(dropout)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, C, Q, cmask, qmask):
-        C = C.transpose(1, 2)
-        Q = Q.transpose(1, 2)
+        #C = C.transpose(1, 2)   # (batch_size, embed_size, c_len)
+        #Q = Q.transpose(1, 2)   # (batch_size, embed_size, q_len)
         cmask = cmask.unsqueeze(2)
         qmask = qmask.unsqueeze(1)
 
@@ -261,7 +251,7 @@ class QANet(nn.Module):
         q_enc = self.emb_enc(q_conv, q_mask)  # (batch_size, q_len, encoder_size)
 
         x = self.att(c_enc, q_enc, c_mask, q_mask)  # (batch_size, p_len, 4 * encoder_size)
-        x = x.transpose(1, 2)
+        # x = x.transpose(1, 2)
         m0 = self.att_squeeze(x)    # (batch_size, encoder_size, p_len)
 
         for enc in self.modeling:
