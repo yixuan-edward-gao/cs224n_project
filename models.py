@@ -485,7 +485,6 @@ def init_model(name, split, **kwargs):
     elif name == 'qanet':
         return QANet(word_vectors=kwargs['word_vectors'],
                      char_vectors=kwargs['char_vectors'],
-                     hidden_size=kwargs['hidden_size'],
                      n_heads=4,
                      encoder_size=128,
                      drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
