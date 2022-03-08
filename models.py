@@ -7,7 +7,6 @@ Author:
 import layers
 import torch
 import torch.nn as nn
-from qanet import QANet
 
 class BiDAF(nn.Module):
     """Baseline BiDAF model for SQuAD.
