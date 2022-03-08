@@ -70,7 +70,7 @@ def main(args):
     optimizer = optim.Adadelta(model.parameters(), args.lr,
                                weight_decay=args.l2_wd)
     # scheduler = sched.LambdaLR(optimizer, lambda s: (s // 5) * args.lr_decay)  # LR decay
-    scheduler = sched.StepLR(optimizer, step_size=5, gamma=args.lr_decay)
+
 
     # Get data loader
     log.info('Building dataset...')
@@ -87,6 +87,7 @@ def main(args):
                                  num_workers=args.num_workers,
                                  collate_fn=collate_fn)
 
+    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset), gamma=args.lr_decay)
     # Train
     log.info('Training...')
     steps_till_eval = args.eval_steps
