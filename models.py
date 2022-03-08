@@ -455,18 +455,6 @@ def init_model(name, split, **kwargs):
                                   hidden_size=kwargs['hidden_size'],
                                   drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
                                   att_type='gated multiplicative')
-    elif name == 'additive':
-        return BiDAFSelfAttention(word_vectors=kwargs['word_vectors'],
-                                  hidden_size=kwargs['hidden_size'],
-                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
-                                  att_type='additive',
-                                  att_dim=8 * kwargs['hidden_size'])
-    elif name == 'rnet':
-        return BiDAFSelfAttention(word_vectors=kwargs['word_vectors'],
-                                  hidden_size=kwargs['hidden_size'],
-                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
-                                  att_type='gated additive',
-                                  att_dim=8 * kwargs['hidden_size'])
     elif name == 'conditional':
         return BiDAFConditionalOutput(word_vectors=kwargs['word_vectors'],
                                       hidden_size=kwargs['hidden_size'],
@@ -482,11 +470,5 @@ def init_model(name, split, **kwargs):
                          char_vectors=kwargs['char_vectors'],
                          hidden_size=kwargs['hidden_size'],
                          drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
-    elif name == 'qanet':
-        return QANet(word_vectors=kwargs['word_vectors'],
-                     char_vectors=kwargs['char_vectors'],
-                     n_heads=4,
-                     encoder_size=128,
-                     drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
 
     raise ValueError(f'No model named {name}')

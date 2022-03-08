@@ -134,6 +134,11 @@ def get_train_args():
                         type=float,
                         default=0.999,
                         help='Decay rate for exponential moving average of parameters.')
+    # my own
+    parser.add_argument('--lr_decay',
+                        type=float,
+                        default=1.0,
+                        help='Multiplicative learning rate decay factor every 5 epochs')
 
     args = parser.parse_args()
 
