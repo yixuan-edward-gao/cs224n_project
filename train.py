@@ -87,7 +87,7 @@ def main(args):
                                  num_workers=args.num_workers,
                                  collate_fn=collate_fn)
 
-    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset), gamma=args.lr_decay)
+    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) / args.batch_size, gamma=args.lr_decay)
     # Train
     log.info('Training...')
     steps_till_eval = args.eval_steps
