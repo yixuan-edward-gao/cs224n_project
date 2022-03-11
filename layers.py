@@ -1,10 +1,11 @@
 """Assortment of layers for use in models.py.
 
-Author:
+Starter code authored by:
     Chris Chute (chute@stanford.edu)
-"""
-import math
 
+Added several of my own implementations.
+Author: Edward Gao
+"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,7 +29,7 @@ class Embedding(nn.Module):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
         self.embed = nn.Embedding.from_pretrained(word_vectors)
-        self.proj = nn.Linear(word_vectors.size(1), hidden_size, bias=False)
+        self.proj = nn.Linear(word_vectors.size()[1], hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, x):
@@ -223,6 +224,7 @@ class BiDAFOutput(nn.Module):
         return log_p1, log_p2
 
 
+# my own below here
 class WordEmbedding(nn.Module):
     """
     Word embedding layer used by BiDAF, without highway network.
@@ -238,7 +240,7 @@ class WordEmbedding(nn.Module):
         super(WordEmbedding, self).__init__()
         self.drop_prob = drop_prob
         self.embed = nn.Embedding.from_pretrained(word_vectors)
-        self.proj = nn.Linear(word_vectors.size(1), hidden_size, bias=False)
+        self.proj = nn.Linear(word_vectors.size()[1], hidden_size, bias=False)
 
     def forward(self, x):
         emb = self.embed(x)   # (batch_size, seq_len, embed_size)
@@ -308,7 +310,7 @@ class AnswerPointer(nn.Module):
         batch_size = H.size()[0]
 
         F_start = torch.tanh(torch.add(self.V(H), self.W(self.initial_hidden))) # (batch_size, seq_len, hidden_size)
-        beta_start = masked_softmax(self.proj(F_start).squeeze(), mask, log_softmax=True) # (batch_size, seq_len)
+        beta_start = masked_softmax(self.proj(F_start).squeeze(), mask, log_softmax=True)   # (batch_size, seq_len)
 
         # (batch_size, hidden_size)
         h_end, _ = self.lstm(torch.bmm(torch.transpose(H, 1, 2), torch.unsqueeze(beta_start, 2)).squeeze(),
@@ -321,7 +323,13 @@ class AnswerPointer(nn.Module):
 
 class MultiplicativeSelfAttention(nn.Module):
     """
-    xxx
+    Simple multiplicative self attention.
+    The output is processed by a linear layer with a ReLU activation.
+    This is a residual layer, meaning the input is added to the output.
+
+    Args:
+        input_size: dimension of input vectors
+        drop_prob: dropout probability
     """
     def __init__(self, input_size, drop_prob):
         super(MultiplicativeSelfAttention, self).__init__()
@@ -337,9 +345,16 @@ class MultiplicativeSelfAttention(nn.Module):
 
 class GatedMultiplicativeSelfAttention(nn.Module):
     """
-    xxx
-    """
+    Multiplicative self attention.
+    The output is passed through an element-wise multiplicative gate and then processed by a bidirectional RNN.
+    It is then processed by a linear layer.
+    This is a residual layer, meaning the input is added to the output.
 
+    Args:
+        input_size: dimension of input vector
+        hidden_size: dimension of RNN hidden states
+        drop_prob: dropout probability
+    """
     def __init__(self, input_size, hidden_size, drop_prob):
         super(GatedMultiplicativeSelfAttention, self).__init__()
         self.W = nn.Linear(input_size, input_size, bias=False)
@@ -360,7 +375,16 @@ class GatedMultiplicativeSelfAttention(nn.Module):
 
 class AdditiveSelfAttention(nn.Module):
     """
-    xxx
+    Simple additive self attention.
+    The output is processed by a linear layer with a ReLU activation.
+    This is a residual layer, meaning the input is added to the output.
+
+    This layer is very memory intensive.
+
+    Args:
+        input_size: dimension of input vectors
+        att_dim: dimension of the projected matrix used for calculating additive attention
+        drop_prob: dropout probability
     """
     def __init__(self, input_size, att_dim, drop_prob):
         super(AdditiveSelfAttention, self).__init__()
@@ -378,7 +402,18 @@ class AdditiveSelfAttention(nn.Module):
 
 class GatedAdditiveSelfAttention(nn.Module):
     """
-    xxx
+    Additive self attention.
+    The output is passed through an element-wise multiplicative gate and then processed by a bidirectional RNN.
+    It is then processed by a linear layer.
+    This is a residual layer, meaning the input is added to the output.
+
+    This layer is very memory intensive.
+
+    Args:
+        input_size: dimension of input vector
+        att_dim: dimension of the projected matrix used for calculating additive attention
+        hidden_size: dimension of RNN hidden states
+        drop_prob: dropout probability
     """
     def __init__(self, input_size, att_dim, hidden_size, drop_prob):
         super(GatedAdditiveSelfAttention, self).__init__()
@@ -400,57 +435,12 @@ class GatedAdditiveSelfAttention(nn.Module):
         return x + h  # (batch_size, seq_len, input_size)
 
 
-class TransformerSelfAttention(nn.Module):
-    def __init__(self, input_size, num_heads, drop_prob):
-        super(TransformerSelfAttention, self).__init__()
-        assert(input_size % num_heads == 0)
-
-        self.key = nn.Linear(input_size, input_size, bias=False)
-        self.query = nn.Linear(input_size, input_size, bias=False)
-        self.value = nn.Linear(input_size, input_size, bias=False)
-
-        self.dropout = nn.Dropout(drop_prob)
-
-        self.proj = nn.Linear(input_size, input_size)
-
-        self.ln1 = nn.LayerNorm(input_size)
-        self.ln2 = nn.LayerNorm(input_size)
-        self.mlp = nn.Sequential(nn.Linear(input_size, 4 * input_size),
-                                 nn.GELU(),
-                                 nn.Linear(4 * input_size, input_size),
-                                 self.dropout)
-
-        self.n_heads = num_heads
-
-    def forward(self, x):
-        x = self.ln1(x)
-
-        batch_size, seq_len, input_size = x.size()
-
-        k = self.key(x).view(batch_size, seq_len, self.n_heads, input_size // self.n_heads).transpose(1, 2)
-        q = self.query(x).view(batch_size, seq_len, self.n_heads, input_size // self.n_heads).transpose(1, 2)
-        v = self.value(x).view(batch_size, seq_len, self.n_heads, input_size // self.n_heads).transpose(1, 2)
-
-        mask = (torch.eye(seq_len) == 1).to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att.masked_fill_(mask, float('-inf'))
-        att = torch.softmax(att, dim=-1)
-        att = self.dropout(att)
-
-        y = att @ v
-        y = y.transpose(1, 2).contiguous().view(batch_size, seq_len, input_size)
-        y = self.dropout(self.proj(y))
-
-        x = x + y
-        return x + self.mlp(self.ln2(x))
-
-
 class ConditionalBiDAFOutput(BiDAFOutput):
     """
-    xxx
+    A rather naive attempt to condition end point prediction on start point prediction.
+    Mostly doesn't work.
 
     Args:
-        att_size: size of attention layer output
         hidden_size (int): Hidden size used in the BiDAF model.
         drop_prob (float): Probability of zero-ing out activations.
     """
@@ -474,6 +464,16 @@ class ConditionalBiDAFOutput(BiDAFOutput):
 
 # helper functions
 def calc_multiplicative_attention(weight, x):
+    """
+    Calculates multiplicative attention.
+
+    Args:
+        weight: weight matrix used in attention mechanism
+        x: input vectors
+
+    Returns:
+        attention output
+    """
     batch_size, seq_len, input_size = x.size()
     Wx = weight(x)  # (batch_size, seq_len, input_size)
     x_copy = torch.transpose(x, 1, 2)  # (batch_size, input_size, seq_len)
@@ -488,6 +488,19 @@ def calc_multiplicative_attention(weight, x):
 
 
 def calc_gated_attention(x, c, gate, rnn, proj=None):
+    """
+    Processes attention output by a gate and an RNN.
+
+    Args:
+        x: input vectors
+        c: attention output
+        gate: an element-wise multiplicative gate
+        rnn: an RNN (or variant thereof) encoder
+        proj: a linear layer or None
+
+    Returns:
+        attention output passed through a gate and processed by an RNN
+    """
     rnn_in = torch.cat([x, c], dim=2)       # (batch_size, seq_len, 2 * input_size)
     rnn_in = rnn_in * gate(rnn_in)      # (batch_size, seq_len, 2 * input_size)
     h, _ = rnn(rnn_in)  # (batch_size, seq_len, 2 * hidden_size)
@@ -495,6 +508,18 @@ def calc_gated_attention(x, c, gate, rnn, proj=None):
 
 
 def calc_additive_attention(W1, W2, v, x):
+    """
+    Calculates additive attention.
+
+    Args:
+        W1: weight matrix for projecting x
+        W2: weight matrix for projecting x
+        v: vector used in attention mechanism
+        x: input vectors
+
+    Returns:
+        attention output
+    """
     batch_size, seq_len, input_size = x.size()
     W1x = W1(x)  # (batch_size, seq_len, att_dim)
     W2x = W2(x)  # (batch_size, seq_len, att_dim)

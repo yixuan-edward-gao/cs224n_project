@@ -2,6 +2,8 @@
 
 Author:
     Chris Chute (chute@stanford.edu)
+
+Added two parameters for (1) model choice and (2) learning rate decay
 """
 
 import argparse

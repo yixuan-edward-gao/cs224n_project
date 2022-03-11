@@ -2,6 +2,8 @@
 
 Author:
     Chris Chute (chute@stanford.edu)
+
+Only added ability to initialize different models to starter code.
 """
 
 import numpy as np

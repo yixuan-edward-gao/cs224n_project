@@ -1,12 +1,17 @@
 """Top-level model classes.
 
-Author:
+Starter code authored by:
     Chris Chute (chute@stanford.edu)
+
+
+Added several of my own implementations.
+Author: Edward Gao
 """
 
 import layers
 import torch
 import torch.nn as nn
+
 
 class BiDAF(nn.Module):
     """Baseline BiDAF model for SQuAD.
@@ -71,6 +76,7 @@ class BiDAF(nn.Module):
         return out
 
 
+# my own below this point
 class BiDAFCharEmbed(nn.Module):
     """
     BiDAF model plus character embeddings.
@@ -215,6 +221,16 @@ class BiDAFSelfAttention(nn.Module):
     Modified BiDAF model with an additional self-attention layer, as presented in R-Net.
     See https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/r-net.pdf for details.
 
+    Several different flavors of self attention are supported.
+    Specify the att_type parameter to choose one of the following:
+        None:                   no self attention
+        multiplicative:         simple multiplicative self attention
+        gated multiplicative:   the output of multiplicative is passed through a gate and then processed by an RNN
+        additive:               simple additive self attention
+        gated additive:         the output of additive is passed through a gate and then processed by an RNN
+
+    additive/gated additive has significant memory constraints
+
     Args:
         word_vectors (torch.Tensor): Pre-trained word vectors.
         hidden_size (int): Number of features in the hidden state at each layer.
@@ -254,10 +270,6 @@ class BiDAFSelfAttention(nn.Module):
                                                               att_dim=kwargs['att_dim'],
                                                               hidden_size=4 * hidden_size,
                                                               drop_prob=drop_prob)
-        elif att_type == 'transformer':
-            self.self_att = layers.TransformerSelfAttention(input_size=8 * hidden_size,
-                                                            num_heads=kwargs['n_heads'],
-                                                            drop_prob=drop_prob)
         else:
             raise ValueError(f'{att_type} attention has not been implemented')
 
@@ -294,7 +306,8 @@ class BiDAFSelfAttention(nn.Module):
 
 class BiDAFConditionalOutput(nn.Module):
     """
-    xxx
+    A rather naive approach to have end point prediction be conditioned on start point prediction.
+    Mostly doesn't work...
     """
     def __init__(self, word_vectors, hidden_size, drop_prob=0.):
         super(BiDAFConditionalOutput, self).__init__()
@@ -429,6 +442,7 @@ class BiDAFPlus(nn.Module):
         return out
 
 
+# returns an instance of the appropriate model
 def init_model(name, split, **kwargs):
     name = name.lower()
     if name == 'bidaf':
@@ -458,12 +472,6 @@ def init_model(name, split, **kwargs):
         return BiDAFConditionalOutput(word_vectors=kwargs['word_vectors'],
                                       hidden_size=kwargs['hidden_size'],
                                       drop_prob=kwargs['drop_prob'] if split == 'train' else 0)
-    elif name == 'transformer':
-        return BiDAFSelfAttention(word_vectors=kwargs['word_vectors'],
-                                  hidden_size=kwargs['hidden_size'],
-                                  drop_prob=kwargs['drop_prob'] if split == 'train' else 0,
-                                  att_type='transformer',
-                                  n_heads=4)
     elif name == 'final':
         return BiDAFPlus(word_vectors=kwargs['word_vectors'],
                          char_vectors=kwargs['char_vectors'],
