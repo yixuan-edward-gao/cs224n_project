@@ -1,5 +1,24 @@
 # CS224N default final project (2022 IID SQuAD track)
 
+Starter code provided by course staff. See set up instructions at the end of this document.
+
+## My implementations
+Additional models and layers implemented by me as part of the final project are included in `models.py` and `layers.py`.
+Some examples include:
+1. Character level embedding
+2. Self attention
+3. Answer Pointer output
+
+
+## Training
+Run `python train.py` to start training. Set the `--model` flag to specify which model to train. For details, see the `initialize_model` method in `models.py`.
+
+## Testing
+Run `python test.py` to test a trained model. Set the `--model` flag to specify which model to test. Set the `--load_path` flag to load trained weights.
+
+## Other arguments
+See  `args.py` for which additional command line arguments are supported.
+
 ## Setup
 
 1. Make sure you have [Miniconda](https://conda.io/docs/user-guide/install/index.html#regular-installation) installed
